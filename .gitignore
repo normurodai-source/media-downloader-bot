@@ -1,0 +1,4 @@
+downloads/
+*.db
+__pycache__/
+cookies.txt
