@@ -148,7 +148,7 @@ def audio_opts():
     return o
 
 
-def run_download(url, opts):
+def _ytdlp_download(url, opts):
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         if "entries" in info:
@@ -156,6 +156,45 @@ def run_download(url, opts):
         rd = info.get("requested_downloads") or []
         path = rd[0].get("filepath") if rd else ydl.prepare_filename(info)
         return info, path
+
+
+import json
+import urllib.request
+import urllib.parse
+
+
+def tiktok_fallback(url, audio=False):
+    api = "https://www.tikwm.com/api/?url=" + urllib.parse.quote(url, safe="")
+    req = urllib.request.Request(api, headers={"User-Agent": "Mozilla/5.0"})
+    d = json.load(urllib.request.urlopen(req, timeout=30))
+    if d.get("code") != 0:
+        raise Exception(d.get("msg") or "TikTok API error")
+    data = d["data"]
+    link = data.get("music") if audio else data.get("play")
+    if not link:
+        raise Exception("TikTok: link not found")
+    if link.startswith("/"):
+        link = "https://www.tikwm.com" + link
+    path = f"downloads/tt_{data['id']}.{'mp3' if audio else 'mp4'}"
+    r = urllib.request.Request(link, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(r, timeout=90) as resp, open(path, "wb") as f:
+        shutil.copyfileobj(resp, f)
+    info = {
+        "title": data.get("title") or "TikTok",
+        "uploader": (data.get("author") or {}).get("nickname"),
+        "duration": data.get("duration"),
+    }
+    return info, path
+
+
+def run_download(url, opts):
+    try:
+        return _ytdlp_download(url, opts)
+    except Exception:
+        if "tiktok.com" in url:
+            audio = "bestaudio" in str(opts.get("format", ""))
+            return tiktok_fallback(url, audio)
+        raise
 
 
 def run_search(q, n=8):
